@@ -4,6 +4,21 @@ A research-quality, open-source implementation of a ray-cast, column-integrated 
 
 **In one sentence:** this repository implements a ray-cast, column-integrated alternative intended to address the self-intersection limitation described in the paper below -- it is not a slicer, not an exact CSG solver, and not a claim of general novelty.
 
+## Interactive demo (SUPVOL app)
+
+A Streamlit research-demo UI lives at `app.py` -- upload an STL (or try a bundled sample), set the build direction/angle threshold/resolution, and see the reference baseline and SUPVOL's integrated estimate side by side, with an optional 3D visualization that colors detected overhang facets and shows the build direction. It is a thin UI layer only: every number comes directly from `supvol.compute_support_volume()`, nothing is reimplemented in the frontend.
+
+```bash
+pip install -e ".[app]"
+streamlit run app.py
+```
+
+**What it demonstrates:** the reference-vs-SUPVOL comparison this whole repository is about, made explorable without writing any code -- upload your own part, or one of the four synthetic fixtures with known ground truth, and see the naive/integrated volumes, the mesh diagnostics, and (for smaller meshes) an interactive 3D view.
+
+**Units**: STL files do not encode physical units -- the app states this explicitly and lets you *label* results with an assumed unit (mm by default); it never claims to detect units from the file, and the label has no effect on the actual numbers.
+
+**Limitations specific to the app** (beyond the library's own, documented above): very large meshes (out of caution, anything over 300,000 faces) require an explicit acknowledgment before running the calculation, since runtime scales with mesh size and grid resolution; the 3D visualization decimates meshes above 30,000 faces purely for browser performance (the calculation itself always runs on the full, undecimated mesh); build direction in the UI is restricted to the same two Z-axis options the library itself supports, not a free-form vector, so the app can never hit the library's `NotImplementedError` path through normal use.
+
 ## A. Reference baseline (from the paper)
 
 Shonkwiler et al.'s [IDETC-2026 paper](https://doi.org/10.1115/DETC2026-193146) on comparing 3D shape representations for ML prediction of LPBF support volume computes, for every facet whose normal is within 50 degrees of straight down:
@@ -145,6 +160,10 @@ python scripts/validate_real_mesh.py --download-benchy --resolution 0.5 0.25
 
 # real-mesh benchmark against your own STL
 python scripts/validate_real_mesh.py --stl your_part.stl --resolution 0.5
+
+# interactive demo UI
+pip install -e ".[app]"
+streamlit run app.py
 ```
 
 ## Project status / next logical experiment
