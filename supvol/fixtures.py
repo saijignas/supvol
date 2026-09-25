@@ -4,7 +4,7 @@ import numpy as np
 import trimesh
 
 
-def shelf_and_pillar():
+def shelf_and_pillar(pillar_offset: tuple[float, float] = (0.0, 0.0)):
     """A pillar with a large overhanging shelf sitting on top of it.
 
     Pillar: 2x2 cross-section, height 10, resting on the build plate (z=0..10).
@@ -15,7 +15,15 @@ def shelf_and_pillar():
     entire underside of the shelf as needing support down to the build plate,
     ignoring that the pillar already occupies part of that column.
 
-    Ground truth, worked by hand:
+    ``pillar_offset`` shifts the pillar's (x, y) position without moving the
+    shelf -- used by the grid-phase sensitivity tests to change the pillar's
+    alignment relative to the sampling grid (whose origin is anchored to the
+    shelf's own footprint) while keeping ground truth identical, as long as
+    the pillar stays fully within the shelf's footprint and away from its
+    edges (true for any offset used in this repo's tests, |offset| << 3).
+
+    Ground truth, worked by hand (independent of pillar_offset under the
+    condition above):
       naive support volume   = 8*8 * 10       = 640
       true  support volume   = (8*8 - 2*2)*10 = 600
       difference             = 2*2*10         = 40   (exactly the pillar's own volume)
@@ -30,7 +38,7 @@ def shelf_and_pillar():
     # below, since the shelf's own overhang facet height (and therefore the
     # naive estimate) is unaffected by how tall the pillar underneath it is.
     pillar = trimesh.creation.box(extents=[2, 2, 10.02])
-    pillar.apply_translation([1, 1, 5.01])  # centered on [0,2]x[0,2], z in [0,10.02]
+    pillar.apply_translation([1 + pillar_offset[0], 1 + pillar_offset[1], 5.01])
 
     shelf = trimesh.creation.box(extents=[8, 8, 2])
     shelf.apply_translation([1, 1, 11])  # centered on [-3,5]x[-3,5], z in [10,12]

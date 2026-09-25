@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "supvol"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-intersection-aware support-volume estimation for additive manufacturing"
 readme = "README.md"
 license = "MIT"
@@ -32,3 +32,9 @@ Repository = "https://github.com/saijignas/supvol"
 
 [tool.setuptools.packages.find]
 include = ["supvol*"]
+
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

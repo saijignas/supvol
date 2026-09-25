@@ -1,25 +1,86 @@
-"""Core algorithm: per-column ray-cast height-field support volume calculation.
+"""Core geometry: overhang-facet detection and the two support-volume estimators.
 
-Replaces the naive `centroid_height x projected_area` estimate (which assumes
-a solid column of support material from every overhanging facet straight down
-to the build plate) with a per-sample-column integration that correctly
-subtracts any of the part's own solid material that already occupies part of
-that column -- the self-intersection case the naive method ignores.
+Units and conventions
+----------------------
+- No physical units are assumed; all lengths/areas/volumes are in whatever
+  units the input mesh uses (mm is typical for STL files from slicers/CAD).
+- The build direction is the direction material is added as printing
+  progresses -- equivalently, "down" (the direction support must span) is
+  the *opposite* of the build direction. The default build direction is
+  ``(0, 0, 1)`` (printing proceeds in +Z), so "down" is ``(0, 0, -1)`` and
+  the build plate is the horizontal plane ``z = z_ground``.
+- **Current limitation:** only build directions parallel to the Z axis
+  (``(0, 0, 1)`` or ``(0, 0, -1)``) are supported. The parameter exists so
+  this assumption is explicit and visible in the API rather than silently
+  hard-coded, and so that arbitrary-direction support can be added later
+  without changing the public signature. See ``README.md`` for why this
+  wasn't extended to arbitrary directions in this pass.
+
+Two estimators are provided:
+
+``compute_naive_support_volume``
+    The reference baseline from Shonkwiler et al. (IDETC-2026): for every
+    overhanging facet, ``centroid_height x horizontally_projected_area``,
+    summed. This is what the paper's own PySLM-based pipeline computes, and
+    it explicitly ignores any intersection between the support column and
+    the part itself.
+
+``compute_integrated_support_volume``
+    This repository's contribution: sample a grid over the union of
+    overhanging facets' footprints, cast one ray per column through the
+    *entire* mesh, and integrate only the open-air gaps between the
+    overhang surface and the build plate. This is a grid approximation,
+    not an exact CSG computation -- see ``README.md`` for convergence
+    evidence and known limitations. It is deliberately never called "the
+    true volume" anywhere in this codebase, only "integrated" or
+    "corrected", to avoid overclaiming exactness it doesn't have.
 """
+
+from __future__ import annotations
 
 import numpy as np
 import trimesh
 
-RAY_DIR = np.array([0.0, 0.0, -1.0])
+_Z_AXIS = np.array([0.0, 0.0, 1.0])
 
 
-def find_overhanging_facets(mesh: trimesh.Trimesh, angle_threshold_deg: float = 50.0):
+def _resolve_down_direction(build_direction: tuple[float, float, float]) -> np.ndarray:
+    """Validate and normalize a build direction, returning the "down" unit vector.
+
+    Raises NotImplementedError for anything not parallel to the Z axis --
+    see the module docstring for why arbitrary directions aren't supported yet.
+    """
+    d = np.asarray(build_direction, dtype=float)
+    norm = np.linalg.norm(d)
+    if norm < 1e-12:
+        raise ValueError(f"build_direction must be non-zero, got {build_direction!r}")
+    d = d / norm
+
+    alignment = abs(float(d @ _Z_AXIS))
+    if alignment < 1 - 1e-6:
+        raise NotImplementedError(
+            f"build_direction={build_direction!r} is not parallel to the Z axis. "
+            "This implementation currently only supports a +Z or -Z build axis "
+            "(see the module docstring in supvol/raycast.py). Arbitrary build "
+            "directions are a documented future extension, not silently assumed."
+        )
+    return -d  # "down" = opposite of the build direction
+
+
+def find_overhanging_facets(
+    mesh: trimesh.Trimesh,
+    angle_threshold_deg: float = 50.0,
+    build_direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+) -> np.ndarray:
     """Facet indices whose normal is within `angle_threshold_deg` of straight down.
 
     Mirrors the IDETC/NAMRC papers' own definition: a facet needs support if its
     outward normal points mostly downward (i.e. it's the underside of the part).
     """
-    down = np.array([0.0, 0.0, -1.0])
+    if not (0.0 < angle_threshold_deg <= 90.0):
+        raise ValueError(f"angle_threshold_deg must be in (0, 90], got {angle_threshold_deg}")
+
+    down = _resolve_down_direction(build_direction)
     cos_thresh = np.cos(np.radians(angle_threshold_deg))
     cos_angle = mesh.face_normals @ down
     return np.nonzero(cos_angle > cos_thresh)[0]
@@ -34,6 +95,10 @@ def _footprint_sample_points(mesh: trimesh.Trimesh, facet_idx: np.ndarray, resol
     shared global grid phase so results from different triangles can be
     deduplicated by integer cell index -- otherwise overlapping facets would
     double-count shared cells.
+
+    Note the grid has a fixed phase anchored to this facet set's own bounding
+    box, not to the mesh's absolute coordinates -- see
+    ``tests/test_grid_sensitivity.py`` for how much this can matter and why.
 
     Returns an (N, 2) array of sample point centers and the cell area (resolution**2).
     """
@@ -89,7 +154,7 @@ def _points_in_triangle(pts: np.ndarray, tri: np.ndarray) -> np.ndarray:
 
 
 def _column_needs_support(hit_z: np.ndarray, hit_nz: np.ndarray, z_ground: float = 0.0) -> float:
-    """True (self-intersection-aware) support height for one vertical column.
+    """Self-intersection-aware support height for one vertical column.
 
     hit_z:  z-coordinates of every ray/mesh intersection along this column.
     hit_nz: z-component of each intersection's face normal (classifies the
@@ -123,41 +188,93 @@ def _column_needs_support(hit_z: np.ndarray, hit_nz: np.ndarray, z_ground: float
     return support
 
 
-def compute_support_volume(
+def compute_naive_support_volume(
+    mesh: trimesh.Trimesh,
+    angle_threshold_deg: float = 50.0,
+    z_ground: float = 0.0,
+    build_direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    overhang_idx: np.ndarray | None = None,
+) -> float:
+    """The paper's reference baseline: sum of centroid_height x projected_area.
+
+    This is exactly the calculation described in Shonkwiler et al. (IDETC-2026):
+    it ignores any intersection between a support column and the part, so it
+    is expected to over-estimate whenever the part's own geometry would
+    already occupy part of that column (see ``compute_integrated_support_volume``).
+
+    "Height" is measured from ``z_ground``, not from the coordinate origin --
+    this matters whenever the build plate isn't literally at z=0.
+
+    ``overhang_idx`` lets a caller reuse an already-computed facet selection
+    (e.g. ``compute_support_volume`` does this) instead of recomputing it.
+    """
+    if overhang_idx is None:
+        overhang_idx = find_overhanging_facets(mesh, angle_threshold_deg, build_direction)
+    if len(overhang_idx) == 0:
+        return 0.0
+
+    down = _resolve_down_direction(build_direction)
+    tri_areas_3d = mesh.area_faces[overhang_idx]
+    normals = mesh.face_normals[overhang_idx]
+    # projected area = 3D area * |cos(angle to build axis)|
+    proj_areas = tri_areas_3d * np.abs(normals @ down)
+    # height above the build plate, measured along the down direction
+    heights = (mesh.triangles_center[overhang_idx] @ (-down)) - z_ground
+    return float(np.sum(np.clip(heights, 0.0, None) * proj_areas))
+
+
+def compute_integrated_support_volume(
     mesh: trimesh.Trimesh,
     angle_threshold_deg: float = 50.0,
     resolution: float = 0.05,
     z_ground: float = 0.0,
-):
-    """Self-intersection-aware support volume, plus the naive estimate for comparison.
+    build_direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    overhang_idx: np.ndarray | None = None,
+) -> tuple[float, int]:
+    """This repository's ray-cast, column-integrated support volume estimate.
 
-    Returns (naive_volume, true_volume, n_sample_points).
+    Grid-samples the union footprint of overhanging facets, casts one
+    vertical ray per sample column through the whole mesh, and sums the
+    open-air gap length between the overhang surface and ``z_ground`` in
+    each column, multiplied by cell area. This corrects both:
+
+    - self-intersection: the part's own geometry occupying part of a column
+      (the shelf/pillar case), and
+    - facet-to-facet overlap: two separate overhangs projecting onto the
+      same footprint (the naive per-facet sum double-counts this).
+
+    Returns ``(integrated_volume, n_sample_columns)``. This is a grid
+    approximation whose error shrinks with ``resolution`` -- see
+    ``scripts/convergence_study.py`` and ``tests/test_convergence.py`` for
+    quantified evidence, and do not treat this as an exact CSG result.
     """
-    overhang_idx = find_overhanging_facets(mesh, angle_threshold_deg)
-    if len(overhang_idx) == 0:
-        return 0.0, 0.0, 0
+    if resolution <= 0:
+        raise ValueError(f"resolution must be > 0, got {resolution}")
 
-    # naive estimate, exactly as the papers describe it: per-facet centroid
-    # height x projected area, summed.
-    tri_areas_3d = mesh.area_faces[overhang_idx]
-    normals = mesh.face_normals[overhang_idx]
-    # projected area = 3D area * |cos(angle to vertical)|
-    proj_areas = tri_areas_3d * np.abs(normals[:, 2])
-    centroid_z = mesh.triangles_center[overhang_idx][:, 2]
-    naive_volume = float(np.sum(centroid_z * proj_areas))
+    if overhang_idx is None:
+        overhang_idx = find_overhanging_facets(mesh, angle_threshold_deg, build_direction)
+    if len(overhang_idx) == 0:
+        return 0.0, 0
+
+    down = _resolve_down_direction(build_direction)
 
     points_xy, cell_area = _footprint_sample_points(mesh, overhang_idx, resolution)
     if len(points_xy) == 0:
-        return naive_volume, 0.0, 0
+        return 0.0, 0
 
-    ray_origins = np.column_stack([points_xy, np.full(len(points_xy), mesh.bounds[1, 2] + 1.0)])
-    ray_directions = np.tile(RAY_DIR, (len(points_xy), 1))
+    # ray_origins/directions are expressed directly in XYZ; _footprint_sample_points
+    # and the hit-height bookkeeping below assume the down direction is +/-Z
+    # (enforced by _resolve_down_direction), so this stays a straightforward
+    # column cast rather than needing a change of basis.
+    top_z = float(mesh.vertices[:, 2].max()) + 1.0
+    ray_origins = np.column_stack([points_xy, np.full(len(points_xy), top_z)])
+    ray_directions = np.tile(down, (len(points_xy), 1))
 
     locations, index_ray, index_tri = mesh.ray.intersects_location(
         ray_origins, ray_directions, multiple_hits=True
     )
 
-    true_volume = 0.0
+    integrated_volume = 0.0
     if len(locations) > 0:
         hit_normals_z = mesh.face_normals[index_tri][:, 2]
         hit_z_all = locations[:, 2]
@@ -165,7 +282,7 @@ def compute_support_volume(
             mask = index_ray == col
             if not np.any(mask):
                 continue
-            true_volume += _column_needs_support(hit_z_all[mask], hit_normals_z[mask], z_ground)
+            integrated_volume += _column_needs_support(hit_z_all[mask], hit_normals_z[mask], z_ground)
 
-    true_volume *= cell_area
-    return naive_volume, true_volume, len(points_xy)
+    integrated_volume *= cell_area
+    return integrated_volume, len(points_xy)
