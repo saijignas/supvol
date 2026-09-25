@@ -20,8 +20,17 @@ def shelf_and_pillar():
       true  support volume   = (8*8 - 2*2)*10 = 600
       difference             = 2*2*10         = 40   (exactly the pillar's own volume)
     """
-    pillar = trimesh.creation.box(extents=[2, 2, 10])
-    pillar.apply_translation([1, 1, 5])  # centered on [0,2]x[0,2], z in [0,10]
+    # The pillar is given a tiny (0.02) genuine 3D overlap with the shelf
+    # rather than an exactly coincident touching plane at z=10. An exact
+    # knife-edge coincidence is numerically fragile -- a ray passing through
+    # that precise seam can be classified differently depending on platform
+    # floating-point behavior (this broke on Linux/Python 3.12 in CI while
+    # passing locally on Windows). A real, non-zero-measure overlap removes
+    # that fragility without changing any of the hand-computed ground truth
+    # below, since the shelf's own overhang facet height (and therefore the
+    # naive estimate) is unaffected by how tall the pillar underneath it is.
+    pillar = trimesh.creation.box(extents=[2, 2, 10.02])
+    pillar.apply_translation([1, 1, 5.01])  # centered on [0,2]x[0,2], z in [0,10.02]
 
     shelf = trimesh.creation.box(extents=[8, 8, 2])
     shelf.apply_translation([1, 1, 11])  # centered on [-3,5]x[-3,5], z in [10,12]
