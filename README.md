@@ -53,6 +53,8 @@ A textbook-exact solution to the self-intersection problem is full mesh boolean 
 
 The build direction (equivalently, "down", the direction support must span) is an explicit parameter (`build_direction`, default `(0, 0, 1)`, i.e. printing proceeds in +Z and support spans down to `z_ground`), not silently hard-coded -- but **only directions parallel to the Z axis are currently supported**; passing anything else raises `NotImplementedError` rather than silently giving a wrong answer. Supporting arbitrary build directions is possible (rotate the mesh to align the requested direction with -Z, run the existing pipeline, since volume is rotation-invariant) but was intentionally not implemented in this pass to avoid a half-tested feature; see the issue tracker for this as a scoped follow-up.
 
+**A real bug this exposed**: the flipped direction (`(0, 0, -1)`) was added to the API but initially shipped silently broken -- both the ray origin and the column-integration sign convention still hard-coded a "-Z is down" assumption despite the parameter existing, so it returned 0 for everything instead of erroring or working. This was only caught by manually exercising the non-default branch after the fact, not by the test suite (which, like the code, only exercised the default direction). Fixed, and `tests/test_build_direction.py` now specifically covers both the trivial case and a mirrored version of the self-intersection fixture under the flipped direction, so this can't regress silently again. Kept here as a concrete illustration of why "the API accepts a parameter" and "the parameter works" are different claims.
+
 ## Validation
 
 ### Analytical synthetic cases

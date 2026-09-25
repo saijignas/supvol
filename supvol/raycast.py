@@ -218,8 +218,13 @@ def compute_naive_support_volume(
     normals = mesh.face_normals[overhang_idx]
     # projected area = 3D area * |cos(angle to build axis)|
     proj_areas = tri_areas_3d * np.abs(normals @ down)
-    # height above the build plate, measured along the down direction
-    heights = (mesh.triangles_center[overhang_idx] @ (-down)) - z_ground
+    # Height above the build plate, measured along the "up" direction
+    # (opposite of down). The build plate is always the horizontal plane
+    # z=z_ground (only Z-axis builds are supported -- see module docstring),
+    # but which side of that plane counts as "above" flips with build_direction:
+    # z_ground - z when down is +Z (the flipped case), z - z_ground otherwise.
+    up_sign = -1.0 if down[2] > 0 else 1.0
+    heights = up_sign * (mesh.triangles_center[overhang_idx][:, 2] - z_ground)
     return float(np.sum(np.clip(heights, 0.0, None) * proj_areas))
 
 
@@ -257,32 +262,53 @@ def compute_integrated_support_volume(
         return 0.0, 0
 
     down = _resolve_down_direction(build_direction)
+    # _column_needs_support's sort/gap arithmetic is written assuming rays
+    # travel in -Z (i.e. "down" decreases z). When build_direction requests
+    # the flipped case (down is +Z), we negate z throughout this function's
+    # internal bookkeeping so that convention holds again -- the final
+    # volume is unaffected by this axis flip, only the intermediate z values
+    # are. (This bug -- silently returning 0 for the flipped direction,
+    # because both the ray origin and the gap arithmetic below still assumed
+    # -Z regardless of `down` -- shipped once already; see git history and
+    # tests/test_build_direction.py, which exists specifically so it can't
+    # regress silently again.)
+    flip = down[2] > 0
 
     points_xy, cell_area = _footprint_sample_points(mesh, overhang_idx, resolution)
     if len(points_xy) == 0:
         return 0.0, 0
 
-    # ray_origins/directions are expressed directly in XYZ; _footprint_sample_points
-    # and the hit-height bookkeeping below assume the down direction is +/-Z
-    # (enforced by _resolve_down_direction), so this stays a straightforward
-    # column cast rather than needing a change of basis.
-    top_z = float(mesh.vertices[:, 2].max()) + 1.0
-    ray_origins = np.column_stack([points_xy, np.full(len(points_xy), top_z)])
+    # Rays must originate on the far side of the mesh from the direction of
+    # travel: above the mesh when traveling -Z (the default), below it when
+    # traveling +Z (the flipped case) -- getting this wrong means the ray
+    # starts past the mesh already moving away from it and never hits anything.
+    if not flip:
+        origin_z = float(mesh.vertices[:, 2].max()) + 1.0
+    else:
+        origin_z = float(mesh.vertices[:, 2].min()) - 1.0
+    ray_origins = np.column_stack([points_xy, np.full(len(points_xy), origin_z)])
     ray_directions = np.tile(down, (len(points_xy), 1))
 
     locations, index_ray, index_tri = mesh.ray.intersects_location(
         ray_origins, ray_directions, multiple_hits=True
     )
 
+    effective_z_ground = -z_ground if flip else z_ground
+
     integrated_volume = 0.0
     if len(locations) > 0:
         hit_normals_z = mesh.face_normals[index_tri][:, 2]
         hit_z_all = locations[:, 2]
+        if flip:
+            hit_z_all = -hit_z_all
+            hit_normals_z = -hit_normals_z
         for col in range(len(points_xy)):
             mask = index_ray == col
             if not np.any(mask):
                 continue
-            integrated_volume += _column_needs_support(hit_z_all[mask], hit_normals_z[mask], z_ground)
+            integrated_volume += _column_needs_support(
+                hit_z_all[mask], hit_normals_z[mask], effective_z_ground
+            )
 
     integrated_volume *= cell_area
     return integrated_volume, len(points_xy)
