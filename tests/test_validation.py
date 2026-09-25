@@ -39,6 +39,21 @@ def _mesh_with_zero_area_face():
     return mesh
 
 
+def _mesh_with_duplicate_faces(n_duplicates=3):
+    """A normal box, plus n_duplicates exact copies of one of its own real
+    faces appended by hand -- a genuine duplicate-face defect, not just a
+    degenerate/zero-area one, so the duplicate-face counter is actually
+    exercised rather than just assumed to work from the clean-box case."""
+    mesh = simple_overhang()[0].copy()
+    face_to_duplicate = mesh.faces[0]
+    # trimesh.process() (called implicitly by some operations) can merge
+    # exact duplicates back out, so faces are set directly and diagnostics
+    # are computed on this exact array without an intervening process() call.
+    duplicated = np.tile(face_to_duplicate, (n_duplicates, 1))
+    mesh.faces = np.vstack([mesh.faces, duplicated])
+    return mesh
+
+
 def test_empty_mesh_raises():
     with pytest.raises(ValueError, match="no vertices"):
         validate_mesh_inputs(_empty_mesh(), resolution=0.1, angle_threshold_deg=50.0)
@@ -119,6 +134,16 @@ def test_diagnostics_on_clean_box():
     assert diagnostics.n_zero_area_faces == 0
     assert diagnostics.n_nonmanifold_edges == 0
     assert diagnostics.n_boundary_edges == 0  # watertight => no boundary edges
+
+
+def test_diagnostics_detects_duplicate_faces():
+    """Recommendation follow-up: n_duplicate_faces was previously only
+    exercised indirectly (via the clean-box case showing 0), never checked
+    against a mesh with an actual, known duplicate-face defect."""
+    mesh = _mesh_with_duplicate_faces(n_duplicates=3)
+    diagnostics = compute_mesh_diagnostics(mesh)
+    assert diagnostics.n_duplicate_faces == 3
+    assert diagnostics.n_faces == len(mesh.faces)  # duplicates aren't silently dropped from the count
 
 
 def test_compute_support_volume_exposes_diagnostics():

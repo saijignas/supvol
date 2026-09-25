@@ -78,6 +78,16 @@ def validate_mesh_inputs(
 
     Returns the mesh's diagnostics so callers (e.g. ``compute_support_volume``)
     don't have to compute them twice.
+
+    Note on warning ``stacklevel``: this function is called both directly and
+    via ``compute_support_volume``, which point at different "correct" frames
+    (stacklevel=2 is right for a direct call; stacklevel=3 would be right
+    when reached through ``compute_support_volume`` instead). stacklevel=2 is
+    used since a direct call is the more standard expectation for a public
+    validation function's own warnings; when reached via
+    ``compute_support_volume`` the warning points at that call site in
+    ``api.py`` rather than the original caller -- less precise, but still
+    correctly attributes the warning to this library rather than nowhere.
     """
     if len(mesh.vertices) == 0:
         raise ValueError("mesh has no vertices (empty mesh)")
@@ -97,7 +107,7 @@ def validate_mesh_inputs(
             f"mesh has {diagnostics.n_zero_area_faces} degenerate (zero-area) "
             "face(s); these contribute no area to either estimate but may "
             "indicate a lower-quality source mesh.",
-            stacklevel=3,
+            stacklevel=2,
         )
     if not diagnostics.watertight:
         warnings.warn(
@@ -108,14 +118,14 @@ def validate_mesh_inputs(
             "empirically stable on a non-watertight benchmark mesh (see "
             "README.md), but this is not a general guarantee -- inspect "
             "results near known holes/gaps before trusting them.",
-            stacklevel=3,
+            stacklevel=2,
         )
     if diagnostics.n_nonmanifold_edges:
         warnings.warn(
             f"mesh has {diagnostics.n_nonmanifold_edges} non-manifold edge(s), "
             "which can also violate the entering/exiting alternation assumption "
             "used by the ray-cast integrated estimate.",
-            stacklevel=3,
+            stacklevel=2,
         )
 
     return diagnostics

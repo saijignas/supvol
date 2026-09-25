@@ -100,42 +100,75 @@ def _footprint_sample_points(mesh: trimesh.Trimesh, facet_idx: np.ndarray, resol
     box, not to the mesh's absolute coordinates -- see
     ``tests/test_grid_sensitivity.py`` for how much this can matter and why.
 
+    Implementation note: per-triangle candidate cells are built with a single
+    batched point-in-triangle test rather than one Python-level call per
+    triangle. On a real mesh (3DBenchy, 35,312 overhang facets) the typical
+    triangle only spans ~4-6 grid cells -- a trivial amount of actual math --
+    but the old per-triangle Python loop still took ~11s purely from
+    interpreter/numpy-call overhead repeated 35,312 times; this version does
+    the same total point-in-triangle work in one vectorized call. See
+    ``tests/test_footprint_sampling.py`` for a direct correctness comparison
+    against the original per-triangle-loop reference implementation, kept
+    there specifically so this optimization can't silently drift from it.
+
     Returns an (N, 2) array of sample point centers and the cell area (resolution**2).
     """
     tris_2d = mesh.vertices[mesh.faces[facet_idx]][:, :, :2]  # (F, 3, 2)
+    if len(tris_2d) == 0:
+        return np.empty((0, 2)), resolution * resolution
     global_origin = tris_2d.reshape(-1, 2).min(axis=0)
 
-    cell_set = set()
-    for tri in tris_2d:
-        t_min = tri.min(axis=0)
-        t_max = tri.max(axis=0)
-        ix_min = int(np.floor((t_min[0] - global_origin[0]) / resolution))
-        ix_max = int(np.ceil((t_max[0] - global_origin[0]) / resolution))
-        iy_min = int(np.floor((t_min[1] - global_origin[1]) / resolution))
-        iy_max = int(np.ceil((t_max[1] - global_origin[1]) / resolution))
+    t_min = tris_2d.min(axis=1)  # (F, 2)
+    t_max = tris_2d.max(axis=1)  # (F, 2)
+    ix_min = np.floor((t_min[:, 0] - global_origin[0]) / resolution).astype(np.int64)
+    ix_max = np.ceil((t_max[:, 0] - global_origin[0]) / resolution).astype(np.int64)
+    iy_min = np.floor((t_min[:, 1] - global_origin[1]) / resolution).astype(np.int64)
+    iy_max = np.ceil((t_max[:, 1] - global_origin[1]) / resolution).astype(np.int64)
 
-        ix = np.arange(ix_min, ix_max + 1)
-        iy = np.arange(iy_min, iy_max + 1)
-        if len(ix) == 0 or len(iy) == 0:
-            continue
-        gix, giy = np.meshgrid(ix, iy)
-        cand_idx = np.column_stack([gix.ravel(), giy.ravel()])
-        cand_xy = global_origin + (cand_idx + 0.5) * resolution
-
-        inside = _points_in_triangle(cand_xy, tri)
-        for cix, ciy in cand_idx[inside]:
-            cell_set.add((int(cix), int(ciy)))
-
-    if not cell_set:
+    nx = ix_max - ix_min + 1  # (F,) cells spanned in x per triangle
+    ny = iy_max - iy_min + 1  # (F,) cells spanned in y per triangle
+    counts = nx * ny  # (F,) total candidate cells per triangle
+    total = int(counts.sum())
+    if total == 0:
         return np.empty((0, 2)), resolution * resolution
 
-    cells = np.array(list(cell_set))
+    # Build, for every (triangle, candidate cell) pair, which triangle it
+    # belongs to and its position within that triangle's local nx-by-ny grid
+    # -- a "ragged range" constructed via repeat rather than a Python loop.
+    tri_of_cell = np.repeat(np.arange(len(tris_2d)), counts)
+    cell_offset_in_tri = np.arange(total) - np.repeat(np.cumsum(counts) - counts, counts)
+    nx_per_cell = np.repeat(nx, counts)
+    # x is the faster-varying (inner) axis, matching np.meshgrid(ix, iy)'s
+    # default 'xy' indexing + .ravel() order in the reference implementation
+    # (see tests/test_footprint_sampling.py) -- getting this backwards was a
+    # real bug caught by that test: it silently dropped cells whenever a
+    # triangle's bbox wasn't square (nx != ny).
+    local_x = cell_offset_in_tri % nx_per_cell
+    local_y = cell_offset_in_tri // nx_per_cell
+
+    cand_ix = np.repeat(ix_min, counts) + local_x
+    cand_iy = np.repeat(iy_min, counts) + local_y
+    cand_xy = global_origin + (np.column_stack([cand_ix, cand_iy]) + 0.5) * resolution
+
+    inside = _points_in_triangles_batched(cand_xy, tris_2d[tri_of_cell])
+
+    if not np.any(inside):
+        return np.empty((0, 2)), resolution * resolution
+
+    cells = np.unique(np.column_stack([cand_ix[inside], cand_iy[inside]]), axis=0)
     points = global_origin + (cells + 0.5) * resolution
     return points, resolution * resolution
 
 
 def _points_in_triangle(pts: np.ndarray, tri: np.ndarray) -> np.ndarray:
-    """Vectorized point-in-triangle test via barycentric sign check."""
+    """Vectorized point-in-triangle test: many points against one shared triangle.
+
+    Kept as the simple reference implementation (used directly by
+    ``tests/test_footprint_sampling.py`` as a ground truth to check the
+    batched version below against), even though the hot path in
+    ``_footprint_sample_points`` now uses ``_points_in_triangles_batched``
+    instead for performance.
+    """
     a, b, c = tri
     v0, v1 = c - a, b - a
     v2 = pts - a
@@ -151,6 +184,35 @@ def _points_in_triangle(pts: np.ndarray, tri: np.ndarray) -> np.ndarray:
     u = (dot11 * dot02 - dot01 * dot12) * inv
     v = (dot00 * dot12 - dot01 * dot02) * inv
     return (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9)
+
+
+def _points_in_triangles_batched(pts: np.ndarray, tris: np.ndarray) -> np.ndarray:
+    """Vectorized point-in-triangle test: each point against its own triangle.
+
+    Same barycentric math as ``_points_in_triangle``, but ``tris`` is
+    ``(N, 3, 2)`` -- one triangle per point in ``pts`` (``(N, 2)``) -- so an
+    arbitrary number of (point, triangle) pairs can be tested in one call
+    instead of one Python-level call per shared triangle. Degenerate
+    (zero-area) triangles correctly test as containing no points, same as
+    ``_points_in_triangle``.
+    """
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    v0, v1 = c - a, b - a
+    v2 = pts - a
+    dot00 = np.einsum("ij,ij->i", v0, v0)
+    dot01 = np.einsum("ij,ij->i", v0, v1)
+    dot02 = np.einsum("ij,ij->i", v2, v0)
+    dot11 = np.einsum("ij,ij->i", v1, v1)
+    dot12 = np.einsum("ij,ij->i", v2, v1)
+    denom = dot00 * dot11 - dot01 * dot01
+
+    degenerate = np.abs(denom) < 1e-12
+    safe_denom = np.where(degenerate, 1.0, denom)
+    inv = 1.0 / safe_denom
+    u = (dot11 * dot02 - dot01 * dot12) * inv
+    v = (dot00 * dot12 - dot01 * dot02) * inv
+    inside = (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9)
+    return inside & ~degenerate
 
 
 def _column_needs_support(hit_z: np.ndarray, hit_nz: np.ndarray, z_ground: float = 0.0) -> float:
@@ -302,13 +364,21 @@ def compute_integrated_support_volume(
         if flip:
             hit_z_all = -hit_z_all
             hit_normals_z = -hit_normals_z
-        for col in range(len(points_xy)):
-            mask = index_ray == col
-            if not np.any(mask):
-                continue
-            integrated_volume += _column_needs_support(
-                hit_z_all[mask], hit_normals_z[mask], effective_z_ground
-            )
+
+        # Group hits by column via a single sort instead of one `index_ray ==
+        # col` mask scan per column (the latter is O(n_columns x n_hits) --
+        # this was the dominant cost on real meshes and fine synthetic grids;
+        # see the performance note in README.md). _column_needs_support
+        # itself is unchanged -- only how its inputs are grouped is different,
+        # to keep this a low-risk optimization of an already-validated
+        # algorithm rather than a rewrite of it.
+        order = np.argsort(index_ray, kind="stable")
+        sorted_ray_idx = index_ray[order]
+        sorted_z = hit_z_all[order]
+        sorted_nz = hit_normals_z[order]
+        boundaries = np.nonzero(np.diff(sorted_ray_idx))[0] + 1
+        for z_group, nz_group in zip(np.split(sorted_z, boundaries), np.split(sorted_nz, boundaries)):
+            integrated_volume += _column_needs_support(z_group, nz_group, effective_z_ground)
 
     integrated_volume *= cell_area
     return integrated_volume, len(points_xy)
