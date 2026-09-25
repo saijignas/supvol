@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+
+# large sample models -- fetch on demand, don't commit binaries to git
+sample_models/
