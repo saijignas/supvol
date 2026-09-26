@@ -119,6 +119,20 @@ Result was stable before and after attempting `trimesh.repair.fill_holes` on the
 
 Reproduce with: `python scripts/validate_real_mesh.py --download-benchy --resolution 0.5 0.25`
 
+### Independent cross-check against PySLM
+
+Shonkwiler et al.'s own paper states its ground-truth labels were computed by "using PySLM [22] to identify overhanging facets... calculating the truncated pyramid volume under each" -- exactly the formula `compute_naive_support_volume()` implements. That reproduction claim had only ever been checked against this repo's own hand-computed synthetic fixtures until now: running PySLM's own `getOverhangMesh()` + `approximateSupportMomentArea()` directly against the same fixtures and against 3DBenchy shows exact agreement (rel. diff 0.000000% in every case, including the real, non-watertight 3DBenchy mesh at 14,316.0113 mm³ both ways).
+
+PySLM is **not** a dependency of this package or `app.py` -- it is only ever used offline, in a standalone script, as an external oracle (the same role `trimesh.repair.fill_holes` already plays for the 3DBenchy check above). Reproduce with:
+
+```bash
+pip install "PythonSLM[support]"
+python scripts/validate_against_pyslm.py
+python scripts/validate_against_pyslm.py --stl sample_models/3DBenchy.stl
+```
+
+`tests/test_against_pyslm.py` runs the same check automatically whenever PySLM happens to be installed, and is skipped (not failed) otherwise -- the core test suite never requires it.
+
 ## Install
 
 ```bash
@@ -170,7 +184,7 @@ streamlit run app.py
 
 ## Project status / next logical experiment
 
-This estimator is validated on synthetic analytical cases (including rotation and grid-phase sensitivity) and one real benchmark mesh. It has not yet been validated against a second, independently-labeled real dataset, or against an existing slicer's own support-volume output as a cross-check. Current scope boundary: Z-axis-only build direction, no PySLM integration, and no ML.
+This estimator is validated on synthetic analytical cases (including rotation and grid-phase sensitivity), one real benchmark mesh, and (for the naive baseline specifically) an exact independent match against PySLM's own overhang-detection and moment-area calculation. The corrected/integrated method's self-intersection handling has not yet been checked against a second, independently-labeled real dataset, or against a full slicer's own support-generation output (as opposed to just the reference baseline formula) as a cross-check. Current scope boundary: Z-axis-only build direction, no PySLM dependency in the implementation itself, and no ML.
 
 ## License
 
