@@ -23,7 +23,7 @@ streamlit run app.py
 
 ## A. Reference baseline (from the paper)
 
-Shonkwiler et al.'s [IDETC-2026 paper](https://doi.org/10.1115/DETC2026-193146) on comparing 3D shape representations for ML prediction of LPBF support volume computes, for every facet whose normal is within 50 degrees of straight down:
+Shonkwiler et al.'s [IDETC-2026 paper](https://doi.org/10.1115/DETC2026-193146) (paper DETC2026-193146, presented at IDETC-CIE 2026, Houston, Aug 2026 -- the DOI may not resolve until ASME publishes the Digital Collection proceedings) on comparing 3D shape representations for ML prediction of LPBF support volume computes, for every facet whose normal is within 50 degrees of straight down:
 
 ```
 support_volume = sum over overhanging facets(

@@ -62,6 +62,11 @@ st.markdown(
     f"&nbsp;|&nbsp; [Source on GitHub]({REPO_URL}) "
     f"&nbsp;|&nbsp; [Reference paper]({PAPER_URL})"
 )
+st.caption(
+    "The reference paper's DOI was assigned at IDETC-CIE 2026 (Houston, Aug 2026); ASME's "
+    "Digital Collection can take a few months after the conference to publish the proceedings "
+    "and activate the DOI, so this link may not resolve yet."
+)
 st.divider()
 
 
