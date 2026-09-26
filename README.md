@@ -170,7 +170,7 @@ streamlit run app.py
 
 ## Project status / next logical experiment
 
-This estimator is validated on synthetic analytical cases (including rotation and grid-phase sensitivity) and one real benchmark mesh. It has not yet been validated against a second, independently-labeled real dataset, or against an existing slicer's own support-volume output as a cross-check. See the repository's issue tracker / commit history for the current scope boundary (Z-axis-only build direction, no PySLM integration, no ML, no GUI -- all deliberate, not oversights).
+This estimator is validated on synthetic analytical cases (including rotation and grid-phase sensitivity) and one real benchmark mesh. It has not yet been validated against a second, independently-labeled real dataset, or against an existing slicer's own support-volume output as a cross-check. Current scope boundary: Z-axis-only build direction, no PySLM integration, and no ML.
 
 ## License
 

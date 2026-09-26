@@ -57,9 +57,9 @@ st.set_page_config(page_title="SUPVOL", page_icon="🖨️", layout="wide")
 st.title("SUPVOL")
 st.caption("Self-Intersection-Aware Support Volume Estimator")
 st.markdown(
-    "A research-quality estimator that corrects a published additive-manufacturing "
-    "support-volume calculation for self-intersection and overlapping-footprint effects "
-    f"it explicitly leaves unaddressed. &nbsp;|&nbsp; [Source on GitHub]({REPO_URL}) "
+    "A research prototype for self-intersection-aware support-volume estimation using "
+    "ray-cast column integration. "
+    f"&nbsp;|&nbsp; [Source on GitHub]({REPO_URL}) "
     f"&nbsp;|&nbsp; [Reference paper]({PAPER_URL})"
 )
 st.divider()
@@ -255,12 +255,8 @@ if result is not None:
     r1.metric("Reference (naive) support volume", f"{result.naive_volume:,.2f} {units}³")
     r2.metric("SUPVOL integrated volume", f"{result.integrated_volume:,.2f} {units}³")
     abs_diff = result.naive_volume - result.integrated_volume
-    r3.metric(
-        "Difference",
-        f"{abs_diff:,.2f} {units}³",
-        delta=f"-{result.reduction_fraction:.1%}",
-        delta_color="inverse",
-    )
+    r3.metric("Reduction vs. reference", f"{result.reduction_fraction:.1%}")
+    r3.caption(f"{abs_diff:,.0f} {units}³ below reference")
 
     r4, r5, r6 = st.columns(3)
     r4.metric("Overhang facets", f"{len(find_overhanging_facets(mesh, angle_threshold_deg, build_direction)):,}")
