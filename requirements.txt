@@ -1,0 +1,5 @@
+numpy>=1.21
+trimesh>=4.0
+rtree>=1.0
+streamlit>=1.30
+plotly>=5.0
