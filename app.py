@@ -260,8 +260,19 @@ if result is not None:
     r1.metric("Reference (naive) support volume", f"{result.naive_volume:,.2f} {units}³")
     r2.metric("SUPVOL integrated volume", f"{result.integrated_volume:,.2f} {units}³")
     abs_diff = result.naive_volume - result.integrated_volume
-    r3.metric("Reduction vs. reference", f"{result.reduction_fraction:.1%}")
-    r3.caption(f"{abs_diff:,.0f} {units}³ below reference")
+    # Near a case with ~zero true correction, grid-discretization noise can make
+    # the integrated estimate marginally *larger* than naive (see the tilted_overhang
+    # convergence note in the README) -- round-to-zero here instead of displaying a
+    # confusing "-0.0%" / "-0 mm3" negative-zero artifact.
+    reduction_pct = result.reduction_fraction * 100
+    if round(reduction_pct, 1) == 0:
+        reduction_pct = 0.0
+    diff_display = 0.0 if round(abs_diff, 0) == 0 else abs_diff
+    r3.metric("Reduction vs. reference", f"{reduction_pct:.1f}%")
+    if diff_display >= 0:
+        r3.caption(f"{diff_display:,.0f} {units}³ below reference")
+    else:
+        r3.caption(f"{abs(diff_display):,.0f} {units}³ above reference (grid-discretization noise)")
 
     r4, r5, r6 = st.columns(3)
     r4.metric("Overhang facets", f"{len(find_overhanging_facets(mesh, angle_threshold_deg, build_direction)):,}")

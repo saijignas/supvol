@@ -18,7 +18,7 @@ import pytest
 st_testing = pytest.importorskip("streamlit.testing.v1")
 pytest.importorskip("plotly")
 
-from supvol.fixtures import shelf_and_pillar, simple_overhang  # noqa: E402
+from supvol.fixtures import shelf_and_pillar, simple_overhang, tilted_overhang  # noqa: E402
 
 AppTest = st_testing.AppTest
 TIMEOUT = 30
@@ -101,6 +101,44 @@ def test_invalid_file_shows_clean_error_not_a_crash():
         f"an invalid file must produce a clean st.error(), not an unhandled exception: {at.exception}"
     )
     assert len(at.error) > 0, "expected a clean st.error() message for an invalid file"
+
+
+def test_near_zero_correction_does_not_show_negative_zero():
+    """Regression test for a real display bug caught via manual testing on the
+    live deployment: tilted_overhang has ~zero true correction, and at a fine
+    grid resolution, discretization noise can make the integrated estimate
+    marginally *larger* than naive -- this produced a confusing "-0.0%" /
+    "-0 mm3 below reference" negative-zero artifact. Exercises the actual
+    near-zero-or-negative branch, not just the normal positive-reduction path
+    the other tests cover. Doesn't assume which sign the noise takes (that can
+    vary across platforms -- see the coincident-surface CI lesson), only that
+    whichever sign it is, it's displayed cleanly and worded correctly."""
+    mesh, truth = tilted_overhang()
+    at = AppTest.from_file("../app.py", default_timeout=TIMEOUT)
+    at.run(timeout=TIMEOUT)
+
+    resolution_input = next(n for n in at.number_input if n.label == "Grid resolution")
+    resolution_input.set_value(0.02).run(timeout=TIMEOUT)
+
+    _upload_and_calculate(at, mesh)
+
+    pct_str = _metric_value(at, "Reduction vs. reference")
+    assert pct_str != "-0.0%", f"negative-zero display artifact: {pct_str!r}"
+
+    diff_caption = next(c.value for c in at.caption if "below reference" in c.value or "above reference" in c.value)
+    assert not diff_caption.startswith("-0 "), f"negative-zero display artifact: {diff_caption!r}"
+
+    # Sign-vs-wording must agree, but only when the *displayed* magnitude is
+    # actually non-zero -- when it rounds to display-zero, "below"/"above" is
+    # moot (0 mm3 either way) and either wording is fine.
+    displayed_magnitude = float(diff_caption.split()[0].replace(",", ""))
+    if displayed_magnitude != 0:
+        naive_val = float(_metric_value(at, "Reference (naive) support volume").split()[0].replace(",", ""))
+        integrated_val = float(_metric_value(at, "SUPVOL integrated volume").split()[0].replace(",", ""))
+        if integrated_val > naive_val:
+            assert "above reference" in diff_caption, f"integrated > naive but caption says: {diff_caption!r}"
+        elif integrated_val < naive_val:
+            assert "below reference" in diff_caption, f"integrated < naive but caption says: {diff_caption!r}"
 
 
 def test_empty_state_calculate_button_disabled():
