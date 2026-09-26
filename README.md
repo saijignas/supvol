@@ -19,6 +19,8 @@ streamlit run app.py
 
 **Limitations specific to the app** (beyond the library's own, documented above): very large meshes (out of caution, anything over 300,000 faces) require an explicit acknowledgment before running the calculation, since runtime scales with mesh size and grid resolution; the 3D visualization decimates meshes above 30,000 faces purely for browser performance (the calculation itself always runs on the full, undecimated mesh); build direction in the UI is restricted to the same two Z-axis options the library itself supports, not a free-form vector, so the app can never hit the library's `NotImplementedError` path through normal use.
 
+**Testing**: `tests/test_app.py` drives the app end to end via Streamlit's own official testing framework (`streamlit.testing.v1.AppTest`), including simulating a real file upload through the actual widget -- not just calling the underlying library functions app.py happens to use. This is also how a real bug was caught: `trimesh.load` doesn't raise on invalid/corrupt STL bytes, it silently returns an empty `Scene`; unhandled, that would have reached later code expecting a real mesh and crashed with a raw, unhandled exception. `test_invalid_file_shows_clean_error_not_a_crash` is a permanent regression test for exactly that. Skipped automatically (not failed) if the optional `app` extra isn't installed.
+
 ## A. Reference baseline (from the paper)
 
 Shonkwiler et al.'s [IDETC-2026 paper](https://doi.org/10.1115/DETC2026-193146) on comparing 3D shape representations for ML prediction of LPBF support volume computes, for every facet whose normal is within 50 degrees of straight down:

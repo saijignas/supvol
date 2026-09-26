@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: pip install -e ".[dev]" ruff
+        run: pip install -e ".[dev,app]" ruff
       - name: Lint
         run: ruff check supvol/ tests/ scripts/ app.py
       - name: Test

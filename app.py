@@ -284,7 +284,7 @@ if result is not None:
         height=350,
         margin=dict(t=40, b=20),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     with st.expander("Mesh diagnostics"):
         st.json(
@@ -369,7 +369,7 @@ if result is not None:
             scene=dict(aspectmode="data"),
             showlegend=False,
         )
-        st.plotly_chart(fig3d, use_container_width=True)
+        st.plotly_chart(fig3d, width='stretch')
         st.caption("Red faces are detected overhangs (support-needing facets); blue cone shows build direction.")
 
 st.divider()
