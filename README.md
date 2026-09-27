@@ -1,12 +1,20 @@
 # supvol
 
+[![CI](https://github.com/saijignas/supvol/actions/workflows/ci.yml/badge.svg)](https://github.com/saijignas/supvol/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10 | 3.12](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue.svg)](pyproject.toml)
+
 A research-quality, open-source implementation of a ray-cast, column-integrated support-volume estimator for additive manufacturing, built to study and address a specific limitation stated in a published support-volume prediction method.
 
 **In one sentence:** this repository implements a ray-cast, column-integrated alternative intended to address the self-intersection limitation described in the paper below -- it is not a slicer, not an exact CSG solver, and not a claim of general novelty.
 
+**Try it live, no install needed: [supvol-ck6ikdp7hi3abt6mpp6x6l.streamlit.app](https://supvol-ck6ikdp7hi3abt6mpp6x6l.streamlit.app/)**
+
 ## Interactive demo (SUPVOL app)
 
-A Streamlit research-demo UI lives at `app.py` -- upload an STL (or try a bundled sample), set the build direction/angle threshold/resolution, and see the reference baseline and SUPVOL's integrated estimate side by side, with an optional 3D visualization that colors detected overhang facets and shows the build direction. It is a thin UI layer only: every number comes directly from `supvol.compute_support_volume()`, nothing is reimplemented in the frontend.
+A Streamlit research-demo UI lives at `app.py` (also [deployed live](https://supvol-ck6ikdp7hi3abt6mpp6x6l.streamlit.app/), no install needed) -- upload an STL (or try a bundled sample), set the build direction/angle threshold/resolution, and see the reference baseline and SUPVOL's integrated estimate side by side, with an optional 3D visualization that colors detected overhang facets and shows the build direction. It is a thin UI layer only: every number comes directly from `supvol.compute_support_volume()`, nothing is reimplemented in the frontend.
+
+To run it locally instead:
 
 ```bash
 pip install -e ".[app]"
