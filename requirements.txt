@@ -3,3 +3,4 @@ trimesh>=4.0
 rtree>=1.0
 streamlit>=1.30
 plotly>=5.0
+fast-simplification>=0.1.0

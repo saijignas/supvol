@@ -23,6 +23,7 @@ from supvol import compute_support_volume
 from supvol.fixtures import overlapping_overhangs, shelf_and_pillar, simple_overhang, tilted_overhang
 from supvol.raycast import find_overhanging_facets
 from supvol.validation import compute_mesh_diagnostics
+from viz_utils import VIZ_DECIMATE_THRESHOLD, decimate_for_viz
 
 REPO_URL = "https://github.com/saijignas/supvol"
 PAPER_URL = "https://doi.org/10.1115/DETC2026-193146"
@@ -30,9 +31,6 @@ PAPER_URL = "https://doi.org/10.1115/DETC2026-193146"
 # Soft guard for "excessively large input" (item 12): above this, require an
 # explicit acknowledgment before running the (potentially slow) calculation.
 LARGE_MESH_FACE_WARNING = 300_000
-# Above this many faces, decimate purely for the *browser-side preview* --
-# never affects the actual calculation, which always runs on the real mesh.
-VIZ_DECIMATE_THRESHOLD = 30_000
 
 SAMPLE_MODELS = {
     "Shelf & pillar (self-intersection demo)": shelf_and_pillar,
@@ -90,20 +88,6 @@ def _load_stl_bytes(file_bytes: bytes) -> trimesh.Trimesh:
     if not isinstance(loaded, trimesh.Trimesh):
         raise ValueError("File did not parse as a valid STL mesh.")
     return loaded
-
-
-def _decimated_for_viz(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    if len(mesh.faces) <= VIZ_DECIMATE_THRESHOLD:
-        return mesh
-    target = VIZ_DECIMATE_THRESHOLD
-    try:
-        return mesh.simplify_quadric_decimation(face_count=target)
-    except Exception:
-        # simplify_quadric_decimation needs an optional dependency (fast-simplification);
-        # fall back to a naive face subsample purely for the preview -- never used
-        # for the actual calculation, so approximate-looking is fine here.
-        idx = np.linspace(0, len(mesh.faces) - 1, target).astype(int)
-        return trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces[idx], process=False)
 
 
 # ----------------------------------------------------------------------------
@@ -340,7 +324,7 @@ if result is not None:
     st.subheader("4. 3D visualization (optional)")
     show_viz = st.checkbox("Show 3D mesh visualization", value=(diagnostics.n_faces <= VIZ_DECIMATE_THRESHOLD))
     if show_viz:
-        viz_mesh = _decimated_for_viz(mesh)
+        viz_mesh = decimate_for_viz(mesh)
         if len(viz_mesh.faces) != len(mesh.faces):
             st.caption(
                 f"Preview decimated to {len(viz_mesh.faces):,} faces for browser performance "

@@ -19,6 +19,6 @@ jobs:
       - name: Install
         run: pip install -e ".[dev,app]" ruff
       - name: Lint
-        run: ruff check supvol/ tests/ scripts/ app.py
+        run: ruff check supvol/ tests/ scripts/ app.py viz_utils.py
       - name: Test
         run: pytest tests/ -v

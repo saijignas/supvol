@@ -16,6 +16,6 @@ Neither of these was caught by review or by "does it still pass" -- both were ca
 
 ## Otherwise
 
-- Keep `pytest tests/ -v` and `ruff check supvol/ tests/ scripts/` passing.
+- Keep `pytest tests/ -v` and `ruff check supvol/ tests/ scripts/ app.py viz_utils.py` passing.
 - Ground truth in `supvol/fixtures.py` should be hand-computable and stated in the docstring, not just asserted.
 - Don't loosen a test tolerance to make it pass -- figure out whether the tolerance was wrong or the code was.
