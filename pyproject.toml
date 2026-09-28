@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Self-intersection-aware support-volume estimation for additive manufacturing"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "Banala Sai Jignas Reddy" }]
 keywords = ["additive-manufacturing", "3d-printing", "support-structure", "mesh-processing"]
 classifiers = [

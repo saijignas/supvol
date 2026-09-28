@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10 | 3.12](https://img.shields.io/badge/python-3.10%20%7C%203.12-blue.svg)](pyproject.toml)
 
-A research-quality, open-source implementation of a ray-cast, column-integrated support-volume estimator for additive manufacturing, built to study and address a specific limitation stated in a published support-volume prediction method.
+A research-prototype, open-source implementation of a ray-cast, column-integrated support-volume estimator for additive manufacturing, built to study and address a specific limitation stated in a published support-volume prediction method.
 
 **In one sentence:** this repository implements a ray-cast, column-integrated alternative intended to address the self-intersection limitation described in the paper below -- it is not a slicer, not an exact CSG solver, and not a claim of general novelty.
 
